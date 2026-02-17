@@ -145,20 +145,9 @@ def dashboard(stav, lokalita, datum):
     st.markdown(f"**Stav zásob:** {stav_ikona} {stav_text}")
     st.divider()
 
-    # Zostatok veľký
+    # 4 metriky v rovnakom štýle
     pct = (zostatok / stav['pociatocny'] * 100) if stav['pociatocny'] else 0
-    st.markdown(f"""
-    <div class="metric-big">
-        <p>🎯 AKTUÁLNY ZOSTATOK NA SKLADE</p>
-        <h1>{zostatok:,.2f} t</h1>
-        <p>{pct:.1f} % z počiatočného stavu</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("")
-
-    # 3 metriky
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.metric("📦 Počiatočný stav (1.1.2026)",
                   f"{stav['pociatocny']:,.2f} t")
@@ -171,6 +160,10 @@ def dashboard(stav, lokalita, datum):
                   f"{stav['spotreba_celkom']:,.2f} t",
                   delta=f"-{stav['spotreba_celkom']:,.2f} t",
                   delta_color="inverse")
+    with c4:
+        st.metric("🎯 Zostatok na sklade",
+                  f"{zostatok:,.2f} t",
+                  delta=f"{pct:.1f} % z počiatočného")
 
     st.divider()
 
