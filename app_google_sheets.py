@@ -267,11 +267,15 @@ def grafy(data, lokalita, datum):
         st.plotly_chart(fig3, use_container_width=True)
 
 
-def tabulka(data, datum):
+def tabulka(data, lokalita, datum):
     filt = data[data['Datum'] <= pd.Timestamp(datum)].copy()
+    poc = POCIATOCNY_STAV[lokalita]
+    filt['Kum_prijem'] = filt['Prijem_celkom'].cumsum()
+    filt['Kum_spotreba'] = filt['Spotreba'].cumsum()
+    filt['Zostatok'] = poc + filt['Kum_prijem'] - filt['Kum_spotreba']
     filt['Datum'] = filt['Datum'].dt.strftime('%d.%m.%Y')
     filt = filt.rename(columns={'Prijem_celkom': 'Príjem spolu'})
-    cols = ['Datum','Bodos','z Dreva HBP','Recyklácia','Jankula','Príjem spolu','Spotreba']
+    cols = ['Datum','Bodos','z Dreva HBP','Recyklácia','Jankula','Príjem spolu','Spotreba','Zostatok']
     for c in cols[1:]:
         filt[c] = filt[c].apply(lambda x: f"{x:,.2f}" if x != 0 else "—")
     st.dataframe(filt[cols], use_container_width=True, hide_index=True, height=400)
@@ -368,6 +372,6 @@ if stav:
         grafy(data, lokalita, vybrany_datum)
     with tab3:
         st.markdown("### 📋 Detailný prehľad pohybov")
-        tabulka(data, vybrany_datum)
+        tabulka(data, lokalita, vybrany_datum)
 else:
     st.warning("⚠️ Pre vybraný dátum nie sú dáta.")
