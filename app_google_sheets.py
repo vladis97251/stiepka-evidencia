@@ -249,16 +249,23 @@ def dashboard(stav, lokalita, datum, mesacne_sumare):
     zostatok = stav['zostatok']
     mesiac_nazov = NAZVY_MESIACOV[stav['mesiac']]
 
-    # Farebné upozornenie podľa zostatku
-    if zostatok > 300:
-        stav_ikona = "🟢"
-        stav_text  = "Zásoby v poriadku"
-    elif zostatok > 100:
-        stav_ikona = "🟡"
-        stav_text  = "Zásoby nízke – sleduj"
+    # Farebné upozornenie podľa zostatku — rôzne limity pre BC a BH
+    if lokalita == 'BC':
+        # BC: väčšia spotreba
+        if zostatok > 300:
+            stav_ikona, stav_text = "🟢", "Zásoby v poriadku"
+        elif zostatok > 100:
+            stav_ikona, stav_text = "🟡", "Zásoby nízke – sleduj"
+        else:
+            stav_ikona, stav_text = "🔴", "⚠️ KRITICKY NÍZKE ZÁSOBY"
     else:
-        stav_ikona = "🔴"
-        stav_text  = "⚠️ KRITICKY NÍZKE ZÁSOBY"
+        # BH: nižšia spotreba
+        if zostatok > 100:
+            stav_ikona, stav_text = "🟢", "Zásoby v poriadku"
+        elif zostatok >= 50:
+            stav_ikona, stav_text = "🟡", "Zásoby nízke – sleduj"
+        else:
+            stav_ikona, stav_text = "🔴", "⚠️ KRITICKY NÍZKE ZÁSOBY"
 
     st.markdown(f"## 📊 {nazov} ({lokalita}) — {datum.strftime('%d.%m.%Y')}")
     st.markdown(f"**Stav zásob:** {stav_ikona} {stav_text}")
