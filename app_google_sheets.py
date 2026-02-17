@@ -47,13 +47,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS štýly
+# CSS štýly — kompatibilné s light aj dark režimom
 st.markdown("""
 <style>
     .main { padding-top: 1rem; }
+
+    /* Metric karty — respektujú tému */
     .stMetric {
-        background-color: #f8f9fa;
-        border: 1px solid #e9ecef;
+        border: 1px solid rgba(128,128,128,0.2);
         border-radius: 12px;
         padding: 16px !important;
     }
@@ -62,6 +63,8 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(46,134,171,0.15);
         transition: all 0.2s;
     }
+
+    /* Veľký zostatok box — vždy biely text na modrom pozadí */
     .metric-big {
         background: linear-gradient(135deg, #2E86AB 0%, #1a5f7a 100%);
         color: white !important;
@@ -71,24 +74,24 @@ st.markdown("""
         box-shadow: 0 8px 24px rgba(46,134,171,0.3);
     }
     .metric-big h1 { color: white !important; margin: 0; font-size: 2.5rem; }
-    .metric-big p  { color: rgba(255,255,255,0.8) !important; margin: 0; font-size: 0.9rem; }
-    div[data-testid="stSidebar"] { background-color: #1a1a2e; }
-    div[data-testid="stSidebar"] * { color: #e0e0e0 !important; }
-    div[data-testid="stSidebar"] .stRadio label { color: #e0e0e0 !important; }
-    div[data-testid="stSidebar"] hr { border-color: #333 !important; }
+    .metric-big p  { color: rgba(255,255,255,0.85) !important; margin: 0; font-size: 0.9rem; }
+
+    /* Status farby — fungujú v oboch režimoch */
     .status-ok  { color: #06A77D; font-weight: bold; }
-    .status-warn{ color: #F77F00; font-weight: bold; }
-    .status-err { color: #D62246; font-weight: bold; }
+    .status-warn{ color: #F7A600; font-weight: bold; }
+    .status-err { color: #E53E3E; font-weight: bold; }
+
+    /* Info box — adaptívne farby */
     .info-box {
-        background: #e8f4f8;
+        background: rgba(46,134,171,0.08);
         border-left: 4px solid #2E86AB;
         border-radius: 4px;
         padding: 12px 16px;
         margin: 8px 0;
     }
     .month-box {
-        background: #f0f7fa;
-        border: 1px solid #d0e8f0;
+        background: rgba(46,134,171,0.05);
+        border: 1px solid rgba(128,128,128,0.2);
         border-radius: 8px;
         padding: 10px 14px;
         margin: 4px 0;
@@ -251,8 +254,8 @@ def dashboard(stav, lokalita, datum, mesacne_sumare):
 
     st.markdown("")
 
-    # 3 metriky
-    c1, c2, c3 = st.columns(3)
+    # 4 metriky
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.metric("📦 Počiatočný stav (1.1.2026)",
                   f"{stav['pociatocny']:,.2f} t")
@@ -265,6 +268,13 @@ def dashboard(stav, lokalita, datum, mesacne_sumare):
                   f"{stav['spotreba_celkom']:,.2f} t",
                   delta=f"-{stav['spotreba_celkom']:,.2f} t",
                   delta_color="inverse")
+    with c4:
+        zmena = zostatok - stav['pociatocny']
+        zmena_str = f"+{zmena:,.2f} t" if zmena >= 0 else f"{zmena:,.2f} t"
+        st.metric("🏁 Konečný stav",
+                  f"{zostatok:,.2f} t",
+                  delta=zmena_str,
+                  delta_color="normal")
 
     st.divider()
 
@@ -472,9 +482,13 @@ st.markdown("### 📅 Výber dátumu")
 
 col_d, col_info = st.columns([1, 2])
 with col_d:
+    # Dnešný dátum orezaný na platný rozsah
+    dnes = date.today()
+    default_datum = max(date(2026, 1, 1), min(dnes, date(2026, 12, 31)))
+
     vybrany_datum = st.date_input(
         "📅 Zobraziť stav ku dňu:",
-        value=date.today() if date.today() <= date(2026, 12, 31) else date(2026, 1, 31),
+        value=default_datum,
         min_value=date(2026, 1, 1),
         max_value=date(2026, 12, 31),
         format="DD.MM.YYYY"
