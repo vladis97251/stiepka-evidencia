@@ -26,44 +26,25 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS štýly
+# CSS štýly - theme-aware (funguje pre dark aj light)
 st.markdown("""
 <style>
     .main { padding-top: 1rem; }
-    .stMetric {
-        background-color: #f8f9fa;
-        border: 1px solid #e9ecef;
-        border-radius: 12px;
-        padding: 16px !important;
-    }
-    .stMetric:hover {
-        border-color: #2E86AB;
-        box-shadow: 0 4px 12px rgba(46,134,171,0.15);
-        transition: all 0.2s;
-    }
     .metric-big {
         background: linear-gradient(135deg, #2E86AB 0%, #1a5f7a 100%);
-        color: white !important;
         border-radius: 12px;
         padding: 20px;
         text-align: center;
         box-shadow: 0 8px 24px rgba(46,134,171,0.3);
     }
     .metric-big h1 { color: white !important; margin: 0; font-size: 2.5rem; }
-    .metric-big p  { color: rgba(255,255,255,0.8) !important; margin: 0; font-size: 0.9rem; }
-    div[data-testid="stSidebar"] { background-color: #1a1a2e; }
-    div[data-testid="stSidebar"] * { color: #e0e0e0 !important; }
-    div[data-testid="stSidebar"] .stRadio label { color: #e0e0e0 !important; }
-    div[data-testid="stSidebar"] hr { border-color: #333 !important; }
-    .status-ok  { color: #06A77D; font-weight: bold; }
-    .status-warn{ color: #F77F00; font-weight: bold; }
-    .status-err { color: #D62246; font-weight: bold; }
+    .metric-big p  { color: rgba(255,255,255,0.85) !important; margin: 0; font-size: 0.9rem; }
     .info-box {
-        background: #e8f4f8;
         border-left: 4px solid #2E86AB;
         border-radius: 4px;
         padding: 12px 16px;
         margin: 8px 0;
+        opacity: 0.9;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -145,9 +126,20 @@ def dashboard(stav, lokalita, datum):
     st.markdown(f"**Stav zásob:** {stav_ikona} {stav_text}")
     st.divider()
 
-    # 4 metriky v rovnakom štýle
+    # Zostatok veľký
     pct = (zostatok / stav['pociatocny'] * 100) if stav['pociatocny'] else 0
-    c1, c2, c3, c4 = st.columns(4)
+    st.markdown(f"""
+    <div class="metric-big">
+        <p>🎯 AKTUÁLNY ZOSTATOK NA SKLADE</p>
+        <h1>{zostatok:,.2f} t</h1>
+        <p>{pct:.1f} % z počiatočného stavu</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("")
+
+    # 3 metriky
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.metric("📦 Počiatočný stav (1.1.2026)",
                   f"{stav['pociatocny']:,.2f} t")
@@ -160,10 +152,6 @@ def dashboard(stav, lokalita, datum):
                   f"{stav['spotreba_celkom']:,.2f} t",
                   delta=f"-{stav['spotreba_celkom']:,.2f} t",
                   delta_color="inverse")
-    with c4:
-        st.metric("🎯 Zostatok na sklade",
-                  f"{zostatok:,.2f} t",
-                  delta=f"{pct:.1f} % z počiatočného")
 
     st.divider()
 
@@ -260,15 +248,11 @@ def grafy(data, lokalita, datum):
         st.plotly_chart(fig3, use_container_width=True)
 
 
-def tabulka(data, lokalita, datum):
+def tabulka(data, datum):
     filt = data[data['Datum'] <= pd.Timestamp(datum)].copy()
-    poc = POCIATOCNY_STAV[lokalita]
-    filt['Kum_prijem'] = filt['Prijem_celkom'].cumsum()
-    filt['Kum_spotreba'] = filt['Spotreba'].cumsum()
-    filt['Zostatok'] = poc + filt['Kum_prijem'] - filt['Kum_spotreba']
     filt['Datum'] = filt['Datum'].dt.strftime('%d.%m.%Y')
     filt = filt.rename(columns={'Prijem_celkom': 'Príjem spolu'})
-    cols = ['Datum','Bodos','z Dreva HBP','Recyklácia','Jankula','Príjem spolu','Spotreba','Zostatok']
+    cols = ['Datum','Bodos','z Dreva HBP','Recyklácia','Jankula','Príjem spolu','Spotreba']
     for c in cols[1:]:
         filt[c] = filt[c].apply(lambda x: f"{x:,.2f}" if x != 0 else "—")
     st.dataframe(filt[cols], use_container_width=True, hide_index=True, height=400)
@@ -344,13 +328,7 @@ with col_d:
         format="DD.MM.YYYY"
     )
 with col_info:
-    st.markdown(f"""
-    <div class="info-box">
-        ✅ Dáta načítané z Google Sheets · 
-        Rozsah: <b>{min_d.strftime('%d.%m.%Y')}</b> – <b>{max_d.strftime('%d.%m.%Y')}</b> · 
-        Záznamy: <b>{len(data)} dní</b>
-    </div>
-    """, unsafe_allow_html=True)
+    st.info(f"✅ Dáta z Google Sheets · Rozsah: **{min_d.strftime('%d.%m.%Y')}** – **{max_d.strftime('%d.%m.%Y')}** · Záznamy: **{len(data)} dní**")
 
 st.divider()
 
@@ -365,6 +343,6 @@ if stav:
         grafy(data, lokalita, vybrany_datum)
     with tab3:
         st.markdown("### 📋 Detailný prehľad pohybov")
-        tabulka(data, lokalita, vybrany_datum)
+        tabulka(data, vybrany_datum)
 else:
     st.warning("⚠️ Pre vybraný dátum nie sú dáta.")
