@@ -9,7 +9,28 @@ import io
 # ══════════════════════════════════════════════════════
 
 SHEET_ID = "1MB041dTwz-zfGg6u3wM1XpmrS_ynDe1J"
-SHEET_GID = "2041175941"
+
+# GID pre každý mesiac (1=január … 12=december)
+SHEET_GIDS = {
+    1:  "2041175941",
+    2:  "996148749",
+    3:  "1052948469",
+    4:  "1742234642",
+    5:  "1522704266",
+    6:  "318756165",
+    7:  "174620779",
+    8:  "1714534272",
+    9:  "2141494448",
+    10: "953926717",
+    11: "1911464342",
+    12: "33776211",
+}
+
+NAZVY_MESIACOV = {
+    1: "Január", 2: "Február", 3: "Marec", 4: "Apríl",
+    5: "Máj", 6: "Jún", 7: "Júl", 8: "August",
+    9: "September", 10: "Október", 11: "November", 12: "December"
+}
 
 # Počiatočné stavy skladu k 1.1.2026 (tony)
 POCIATOCNY_STAV = {
@@ -26,25 +47,52 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS štýly - theme-aware (funguje pre dark aj light)
+# CSS štýly
 st.markdown("""
 <style>
     .main { padding-top: 1rem; }
+    .stMetric {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 12px;
+        padding: 16px !important;
+    }
+    .stMetric:hover {
+        border-color: #2E86AB;
+        box-shadow: 0 4px 12px rgba(46,134,171,0.15);
+        transition: all 0.2s;
+    }
     .metric-big {
         background: linear-gradient(135deg, #2E86AB 0%, #1a5f7a 100%);
+        color: white !important;
         border-radius: 12px;
         padding: 20px;
         text-align: center;
         box-shadow: 0 8px 24px rgba(46,134,171,0.3);
     }
     .metric-big h1 { color: white !important; margin: 0; font-size: 2.5rem; }
-    .metric-big p  { color: rgba(255,255,255,0.85) !important; margin: 0; font-size: 0.9rem; }
+    .metric-big p  { color: rgba(255,255,255,0.8) !important; margin: 0; font-size: 0.9rem; }
+    div[data-testid="stSidebar"] { background-color: #1a1a2e; }
+    div[data-testid="stSidebar"] * { color: #e0e0e0 !important; }
+    div[data-testid="stSidebar"] .stRadio label { color: #e0e0e0 !important; }
+    div[data-testid="stSidebar"] hr { border-color: #333 !important; }
+    .status-ok  { color: #06A77D; font-weight: bold; }
+    .status-warn{ color: #F77F00; font-weight: bold; }
+    .status-err { color: #D62246; font-weight: bold; }
     .info-box {
+        background: #e8f4f8;
         border-left: 4px solid #2E86AB;
         border-radius: 4px;
         padding: 12px 16px;
         margin: 8px 0;
-        opacity: 0.9;
+    }
+    .month-box {
+        background: #f0f7fa;
+        border: 1px solid #d0e8f0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin: 4px 0;
+        font-size: 0.9rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -71,7 +119,7 @@ def spracuj_data(df):
     bc.columns = bh.columns = ['Datum', 'Bodos', 'z Dreva HBP', 'Recyklácia', 'Jankula', 'Spotreba']
 
     for d in [bc, bh]:
-        d.drop(d[d['Datum'] == 'Spolu'].index, inplace=True)
+        d.drop(d[d['Datum'] == 'Spolu'].index, inplace=True, errors='ignore')
         d['Datum'] = pd.to_datetime(d['Datum'], format='%m/%d/%Y', errors='coerce')
         d.dropna(subset=['Datum'], inplace=True)
         for col in ['Bodos', 'z Dreva HBP', 'Recyklácia', 'Jankula', 'Spotreba']:
@@ -82,6 +130,37 @@ def spracuj_data(df):
         d['Prijem_celkom'] = d[['Bodos', 'z Dreva HBP', 'Recyklácia', 'Jankula']].sum(axis=1)
 
     return bc.reset_index(drop=True), bh.reset_index(drop=True)
+
+
+def nacitaj_mesiace(od_mesiaca: int, do_mesiaca: int):
+    """
+    Načíta a spracuje dáta pre rozsah mesiacov (vrátane oboch krajných).
+    Vráti spojené DataFramy pre BC a BH.
+    """
+    bc_all = []
+    bh_all = []
+    chyby = []
+
+    for mesiac in range(od_mesiaca, do_mesiaca + 1):
+        gid = SHEET_GIDS.get(mesiac)
+        if not gid:
+            continue
+
+        df_raw, chyba = nacitaj_z_google_sheets(SHEET_ID, gid)
+        if chyba:
+            chyby.append(f"{NAZVY_MESIACOV[mesiac]}: {chyba}")
+            continue
+
+        bc_m, bh_m = spracuj_data(df_raw)
+        if not bc_m.empty:
+            bc_all.append(bc_m)
+        if not bh_m.empty:
+            bh_all.append(bh_m)
+
+    bc_final = pd.concat(bc_all, ignore_index=True) if bc_all else pd.DataFrame()
+    bh_final = pd.concat(bh_all, ignore_index=True) if bh_all else pd.DataFrame()
+
+    return bc_final, bh_final, chyby
 
 
 def vypocitaj(data, lokalita, datum):
@@ -107,7 +186,41 @@ def vypocitaj(data, lokalita, datum):
     }
 
 
-def dashboard(stav, lokalita, datum):
+def vypocitaj_mesacne_sumare(data, lokalita, do_datumu):
+    """
+    Vypočíta súhrn pre každý mesiac (príjem, spotreba, zostatok na konci mesiaca).
+    Vracia list slovníkov.
+    """
+    poc = POCIATOCNY_STAV[lokalita]
+    filt = data[data['Datum'] <= pd.Timestamp(do_datumu)].copy()
+    if filt.empty:
+        return []
+
+    filt['Mesiac'] = filt['Datum'].dt.month
+    mesiace = sorted(filt['Mesiac'].unique())
+
+    sumare = []
+    kumulativny_zostatok = poc
+
+    for m in mesiace:
+        m_data = filt[filt['Mesiac'] == m]
+        prijem = m_data['Prijem_celkom'].sum()
+        spotreba = m_data['Spotreba'].sum()
+        kumulativny_zostatok += prijem - spotreba
+        sumare.append({
+            'mesiac': m,
+            'nazov': NAZVY_MESIACOV[m],
+            'prijem': prijem,
+            'spotreba': spotreba,
+            'zmena': prijem - spotreba,
+            'zostatok': kumulativny_zostatok,
+            'dni': len(m_data)
+        })
+
+    return sumare
+
+
+def dashboard(stav, lokalita, datum, mesacne_sumare):
     nazov = "Baňa Cigeľ" if lokalita == 'BC' else "Baňa Handlová"
     zostatok = stav['zostatok']
 
@@ -132,7 +245,7 @@ def dashboard(stav, lokalita, datum):
     <div class="metric-big">
         <p>🎯 AKTUÁLNY ZOSTATOK NA SKLADE</p>
         <h1>{zostatok:,.2f} t</h1>
-        <p>{pct:.1f} % z počiatočného stavu</p>
+        <p>{pct:.1f} % z počiatočného stavu (1.1.2026)</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -144,11 +257,11 @@ def dashboard(stav, lokalita, datum):
         st.metric("📦 Počiatočný stav (1.1.2026)",
                   f"{stav['pociatocny']:,.2f} t")
     with c2:
-        st.metric("➕ Príjem spolu",
+        st.metric("➕ Príjem spolu (celé obdobie)",
                   f"{stav['prijem_celkom']:,.2f} t",
                   delta=f"+{stav['prijem_celkom']:,.2f} t")
     with c3:
-        st.metric("➖ Spotreba spolu",
+        st.metric("➖ Spotreba spolu (celé obdobie)",
                   f"{stav['spotreba_celkom']:,.2f} t",
                   delta=f"-{stav['spotreba_celkom']:,.2f} t",
                   delta_color="inverse")
@@ -176,10 +289,44 @@ def dashboard(stav, lokalita, datum):
         st.metric("Jankula", f"{stav['prijem_jankula']:,.2f} t",
                   delta=f"{pct_j:.1f} %")
 
+    # Mesačný prehľad
+    if mesacne_sumare and len(mesacne_sumare) > 1:
+        st.divider()
+        st.markdown("### 📅 Prehľad po mesiacoch")
+
+        cols_header = st.columns([2, 2, 2, 2, 2])
+        with cols_header[0]:
+            st.markdown("**Mesiac**")
+        with cols_header[1]:
+            st.markdown("**Príjem [t]**")
+        with cols_header[2]:
+            st.markdown("**Spotreba [t]**")
+        with cols_header[3]:
+            st.markdown("**Zmena [t]**")
+        with cols_header[4]:
+            st.markdown("**Zostatok [t]**")
+
+        for s in mesacne_sumare:
+            cols_row = st.columns([2, 2, 2, 2, 2])
+            zmena_prefix = "+" if s['zmena'] >= 0 else ""
+            with cols_row[0]:
+                st.markdown(f"**{s['nazov']}** ({s['dni']} dní)")
+            with cols_row[1]:
+                st.markdown(f"📦 {s['prijem']:,.2f}")
+            with cols_row[2]:
+                st.markdown(f"🔥 {s['spotreba']:,.2f}")
+            with cols_row[3]:
+                color = "#06A77D" if s['zmena'] >= 0 else "#D62246"
+                st.markdown(f"<span style='color:{color};font-weight:bold'>{zmena_prefix}{s['zmena']:,.2f}</span>",
+                           unsafe_allow_html=True)
+            with cols_row[4]:
+                st.markdown(f"**{s['zostatok']:,.2f}**")
+
 
 def grafy(data, lokalita, datum):
     filt = data[data['Datum'] <= pd.Timestamp(datum)].copy()
     poc = POCIATOCNY_STAV[lokalita]
+    filt = filt.sort_values('Datum').reset_index(drop=True)
     filt['Kum_prijem']   = filt['Prijem_celkom'].cumsum()
     filt['Kum_spotreba'] = filt['Spotreba'].cumsum()
     filt['Zostatok']     = poc + filt['Kum_prijem'] - filt['Kum_spotreba']
@@ -193,16 +340,16 @@ def grafy(data, lokalita, datum):
         mode='lines+markers',
         name='Zostatok', fill='tozeroy',
         line=dict(color='#2E86AB', width=3),
-        marker=dict(size=6, color='#2E86AB'),
+        marker=dict(size=5, color='#2E86AB'),
         fillcolor='rgba(46,134,171,0.1)'
     ))
     fig1.add_hline(y=poc, line_dash='dash', line_color='#888',
                    annotation_text=f'Počiatočný stav ({poc:,.2f} t)',
                    annotation_position='top right')
     fig1.update_layout(
-        title='📈 Vývoj zostatku na sklade',
+        title='📈 Vývoj zostatku na sklade (celé obdobie)',
         xaxis_title='Dátum', yaxis_title='Tony [t]',
-        hovermode='x unified', height=380,
+        hovermode='x unified', height=420,
         plot_bgcolor='white', paper_bgcolor='white',
         xaxis=dict(showgrid=True, gridcolor='#f0f0f0'),
         yaxis=dict(showgrid=True, gridcolor='#f0f0f0')
@@ -247,15 +394,45 @@ def grafy(data, lokalita, datum):
         )
         st.plotly_chart(fig3, use_container_width=True)
 
+    # Graf 4 – Mesačný prehľad (ak viac mesiacov)
+    if filt['Datum'].dt.month.nunique() > 1:
+        st.divider()
+        monthly = filt.copy()
+        monthly['Mesiac'] = monthly['Datum'].dt.month
+        monthly_agg = monthly.groupby('Mesiac').agg(
+            Prijem=('Prijem_celkom', 'sum'),
+            Spotreba=('Spotreba', 'sum')
+        ).reset_index()
+        monthly_agg['Nazov'] = monthly_agg['Mesiac'].map(NAZVY_MESIACOV)
+
+        fig4 = go.Figure()
+        fig4.add_trace(go.Bar(
+            x=monthly_agg['Nazov'], y=monthly_agg['Prijem'],
+            name='Príjem', marker_color='#06A77D'
+        ))
+        fig4.add_trace(go.Bar(
+            x=monthly_agg['Nazov'], y=monthly_agg['Spotreba'],
+            name='Spotreba', marker_color='#D62246'
+        ))
+        fig4.update_layout(
+            title='📊 Mesačný príjem vs. spotreba',
+            barmode='group', height=380,
+            plot_bgcolor='white', paper_bgcolor='white',
+            xaxis=dict(showgrid=False, title=''),
+            yaxis=dict(showgrid=True, gridcolor='#f0f0f0', title='Tony [t]')
+        )
+        st.plotly_chart(fig4, use_container_width=True)
+
 
 def tabulka(data, datum):
     filt = data[data['Datum'] <= pd.Timestamp(datum)].copy()
+    filt = filt.sort_values('Datum').reset_index(drop=True)
     filt['Datum'] = filt['Datum'].dt.strftime('%d.%m.%Y')
     filt = filt.rename(columns={'Prijem_celkom': 'Príjem spolu'})
     cols = ['Datum','Bodos','z Dreva HBP','Recyklácia','Jankula','Príjem spolu','Spotreba']
     for c in cols[1:]:
         filt[c] = filt[c].apply(lambda x: f"{x:,.2f}" if x != 0 else "—")
-    st.dataframe(filt[cols], use_container_width=True, hide_index=True, height=400)
+    st.dataframe(filt[cols], use_container_width=True, hide_index=True, height=500)
 
 
 # ══════════════════════════════════════════════════════
@@ -290,15 +467,45 @@ with st.sidebar:
     st.divider()
     st.caption("Dáta sa automaticky obnovujú každých 5 minút.")
 
-# Načítanie dát z Google Sheets
-with st.spinner("📡 Načítavam dáta z Google Sheets..."):
-    df_raw, chyba = nacitaj_z_google_sheets(SHEET_ID, SHEET_GID)
+# Výber dátumu — ešte pred načítaním, aby sme vedeli aký rozsah mesiacov treba
+st.markdown("### 📅 Výber dátumu")
 
-if chyba:
-    st.error(f"""
-    ❌ **Nepodarilo sa načítať dáta z Google Sheets.**
+col_d, col_info = st.columns([1, 2])
+with col_d:
+    vybrany_datum = st.date_input(
+        "📅 Zobraziť stav ku dňu:",
+        value=date.today() if date.today() <= date(2026, 12, 31) else date(2026, 1, 31),
+        min_value=date(2026, 1, 1),
+        max_value=date(2026, 12, 31),
+        format="DD.MM.YYYY"
+    )
 
-    **Chyba:** `{chyba}`
+# Zistíme, koľko mesiacov treba načítať
+mesiac_vybrany = vybrany_datum.month
+mesiace_na_nacitanie = list(range(1, mesiac_vybrany + 1))
+
+with col_info:
+    mesiace_text = ", ".join([NAZVY_MESIACOV[m] for m in mesiace_na_nacitanie])
+    st.markdown(f"""
+    <div class="info-box">
+        📡 Načítavam dáta za: <b>{mesiace_text}</b><br>
+        (od 1.1.2026 do {vybrany_datum.strftime('%d.%m.%Y')} = <b>{len(mesiace_na_nacitanie)}</b> mesiac{'ov' if len(mesiace_na_nacitanie) > 1 else ''})
+    </div>
+    """, unsafe_allow_html=True)
+
+st.divider()
+
+# Načítanie dát z Google Sheets — všetky potrebné mesiace
+with st.spinner(f"📡 Načítavam dáta z Google Sheets ({len(mesiace_na_nacitanie)} mesiac{'ov' if len(mesiace_na_nacitanie) > 1 else ''})..."):
+    bc_data, bh_data, chyby = nacitaj_mesiace(1, mesiac_vybrany)
+
+if chyby:
+    for ch in chyby:
+        st.warning(f"⚠️ Problém s načítaním: {ch}")
+
+if bc_data.empty and bh_data.empty:
+    st.error("""
+    ❌ **Nepodarilo sa načítať žiadne dáta z Google Sheets.**
 
     **Riešenie:**
     1. Otvor Google Sheets
@@ -308,41 +515,63 @@ if chyba:
     """)
     st.stop()
 
-# Spracovanie dát
-bc_data, bh_data = spracuj_data(df_raw)
+# Vyber dáta podľa lokality
 data = bc_data if lokalita == 'BC' else bh_data
 
 if data.empty:
-    st.warning("⚠️ Žiadne dáta v Google Sheets.")
+    st.warning("⚠️ Žiadne dáta pre vybranú lokalitu.")
     st.stop()
 
-# Výber dátumu
+# Zoradíme podľa dátumu
+data = data.sort_values('Datum').reset_index(drop=True)
+
+# Obmedzenie na skutočne dostupné dáta
 min_d = data['Datum'].min().date()
 max_d = data['Datum'].max().date()
 
-col_d, col_info = st.columns([1, 2])
-with col_d:
-    vybrany_datum = st.date_input(
-        "📅 Zobraziť stav ku dňu:",
-        value=max_d, min_value=min_d, max_value=max_d,
-        format="DD.MM.YYYY"
-    )
-with col_info:
-    st.info(f"✅ Dáta z Google Sheets · Rozsah: **{min_d.strftime('%d.%m.%Y')}** – **{max_d.strftime('%d.%m.%Y')}** · Záznamy: **{len(data)} dní**")
+# Ak vybraný dátum presahuje dostupné dáta
+if vybrany_datum > max_d:
+    st.info(f"ℹ️ Posledný dostupný záznam je z **{max_d.strftime('%d.%m.%Y')}**. Zobrazujem stav k tomuto dátumu.")
+    vybrany_datum = max_d
+
+if vybrany_datum < min_d:
+    st.warning(f"⚠️ Prvý dostupný záznam je z {min_d.strftime('%d.%m.%Y')}.")
+    st.stop()
+
+# Info o načítaných dátach
+st.markdown(f"""
+<div class="info-box">
+    ✅ Dáta úspešne načítané · 
+    Rozsah: <b>{min_d.strftime('%d.%m.%Y')}</b> – <b>{max_d.strftime('%d.%m.%Y')}</b> · 
+    Záznamy: <b>{len(data)} dní</b> ·
+    Mesiacov: <b>{data['Datum'].dt.month.nunique()}</b>
+</div>
+""", unsafe_allow_html=True)
 
 st.divider()
 
 # Výpočet a zobrazenie
 stav = vypocitaj(data, lokalita, vybrany_datum)
+mesacne_sumare = vypocitaj_mesacne_sumare(data, lokalita, vybrany_datum)
 
 if stav:
     tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "📈 Grafy", "📋 Detail"])
     with tab1:
-        dashboard(stav, lokalita, vybrany_datum)
+        dashboard(stav, lokalita, vybrany_datum, mesacne_sumare)
     with tab2:
         grafy(data, lokalita, vybrany_datum)
     with tab3:
         st.markdown("### 📋 Detailný prehľad pohybov")
-        tabulka(data, vybrany_datum)
+        # Filter pre detail
+        detail_mesiac = st.selectbox(
+            "Filtrovať mesiac:",
+            ["Všetky"] + [NAZVY_MESIACOV[m] for m in sorted(data[data['Datum'] <= pd.Timestamp(vybrany_datum)]['Datum'].dt.month.unique())]
+        )
+        if detail_mesiac != "Všetky":
+            mesiac_num = [k for k, v in NAZVY_MESIACOV.items() if v == detail_mesiac][0]
+            filtered_data = data[data['Datum'].dt.month == mesiac_num]
+            tabulka(filtered_data, vybrany_datum)
+        else:
+            tabulka(data, vybrany_datum)
 else:
     st.warning("⚠️ Pre vybraný dátum nie sú dáta.")
