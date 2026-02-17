@@ -167,24 +167,45 @@ def nacitaj_mesiace(od_mesiaca: int, do_mesiaca: int):
 
 
 def vypocitaj(data, lokalita, datum):
-    """Vypočíta stav skladu k danému dátumu"""
+    """
+    Vypočíta stav skladu k danému dátumu.
+    Rozdeľuje na:
+      - predchádzajúce mesiace → tvoria "počiatočný stav mesiaca"
+      - aktuálny mesiac (do vybraného dátumu) → príjem a spotreba mesiaca
+    """
     filt = data[data['Datum'] <= pd.Timestamp(datum)]
     if filt.empty:
         return None
 
-    poc = POCIATOCNY_STAV[lokalita]
-    prijem = filt['Prijem_celkom'].sum()
-    spotreba = filt['Spotreba'].sum()
+    mesiac = datum.month
+    poc_orig = POCIATOCNY_STAV[lokalita]
+
+    # Dáta za predchádzajúce mesiace (< aktuálny mesiac)
+    predch = filt[filt['Datum'].dt.month < mesiac]
+    prijem_predch = predch['Prijem_celkom'].sum() if not predch.empty else 0
+    spotreba_predch = predch['Spotreba'].sum() if not predch.empty else 0
+
+    # Počiatočný stav aktuálneho mesiaca = pôvodný + predchádzajúce mesiace
+    poc_mesiac = poc_orig + prijem_predch - spotreba_predch
+
+    # Dáta za aktuálny mesiac (do vybraného dátumu vrátane)
+    aktualny = filt[filt['Datum'].dt.month == mesiac]
+    prijem_mesiac = aktualny['Prijem_celkom'].sum() if not aktualny.empty else 0
+    spotreba_mesiac = aktualny['Spotreba'].sum() if not aktualny.empty else 0
+
+    zostatok = poc_mesiac + prijem_mesiac - spotreba_mesiac
 
     return {
-        'pociatocny':       poc,
-        'prijem_celkom':    prijem,
-        'prijem_bodos':     filt['Bodos'].sum(),
-        'prijem_dreva':     filt['z Dreva HBP'].sum(),
-        'prijem_recyklacia':filt['Recyklácia'].sum(),
-        'prijem_jankula':   filt['Jankula'].sum(),
-        'spotreba_celkom':  spotreba,
-        'zostatok':         poc + prijem - spotreba,
+        'pociatocny_orig':  poc_orig,
+        'pociatocny':       poc_mesiac,
+        'prijem_celkom':    prijem_mesiac,
+        'prijem_bodos':     aktualny['Bodos'].sum() if not aktualny.empty else 0,
+        'prijem_dreva':     aktualny['z Dreva HBP'].sum() if not aktualny.empty else 0,
+        'prijem_recyklacia':aktualny['Recyklácia'].sum() if not aktualny.empty else 0,
+        'prijem_jankula':   aktualny['Jankula'].sum() if not aktualny.empty else 0,
+        'spotreba_celkom':  spotreba_mesiac,
+        'zostatok':         zostatok,
+        'mesiac':           mesiac,
         'data_filtered':    filt
     }
 
@@ -226,6 +247,7 @@ def vypocitaj_mesacne_sumare(data, lokalita, do_datumu):
 def dashboard(stav, lokalita, datum, mesacne_sumare):
     nazov = "Baňa Cigeľ" if lokalita == 'BC' else "Baňa Handlová"
     zostatok = stav['zostatok']
+    mesiac_nazov = NAZVY_MESIACOV[stav['mesiac']]
 
     # Farebné upozornenie podľa zostatku
     if zostatok > 300:
@@ -243,7 +265,7 @@ def dashboard(stav, lokalita, datum, mesacne_sumare):
     st.divider()
 
     # Zostatok veľký
-    pct = (zostatok / stav['pociatocny'] * 100) if stav['pociatocny'] else 0
+    pct = (zostatok / stav['pociatocny_orig'] * 100) if stav['pociatocny_orig'] else 0
     st.markdown(f"""
     <div class="metric-big">
         <p>🎯 AKTUÁLNY ZOSTATOK NA SKLADE</p>
@@ -254,17 +276,24 @@ def dashboard(stav, lokalita, datum, mesacne_sumare):
 
     st.markdown("")
 
-    # 4 metriky
+    # Popis odkiaľ sa berie počiatočný stav
+    if stav['mesiac'] == 1:
+        poc_label = "📦 Počiatočný stav (1.1.2026)"
+    else:
+        predch_mesiac = NAZVY_MESIACOV[stav['mesiac'] - 1]
+        poc_label = f"📦 Poč. stav ({mesiac_nazov}) = koniec {predch_mesiac}"
+
+    # 4 metriky — za aktuálny mesiac
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.metric("📦 Počiatočný stav (1.1.2026)",
+        st.metric(poc_label,
                   f"{stav['pociatocny']:,.2f} t")
     with c2:
-        st.metric("➕ Príjem spolu (celé obdobie)",
+        st.metric(f"➕ Príjem ({mesiac_nazov})",
                   f"{stav['prijem_celkom']:,.2f} t",
                   delta=f"+{stav['prijem_celkom']:,.2f} t")
     with c3:
-        st.metric("➖ Spotreba spolu (celé obdobie)",
+        st.metric(f"➖ Spotreba ({mesiac_nazov})",
                   f"{stav['spotreba_celkom']:,.2f} t",
                   delta=f"-{stav['spotreba_celkom']:,.2f} t",
                   delta_color="inverse")
@@ -278,8 +307,8 @@ def dashboard(stav, lokalita, datum, mesacne_sumare):
 
     st.divider()
 
-    # Dodávatelia
-    st.markdown("### 📥 Príjem podľa dodávateľov")
+    # Dodávatelia — aktuálny mesiac
+    st.markdown(f"### 📥 Príjem podľa dodávateľov ({mesiac_nazov})")
     d1, d2, d3, d4 = st.columns(4)
     celk = stav['prijem_celkom'] or 1
     with d1:
